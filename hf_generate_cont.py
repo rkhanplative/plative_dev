@@ -254,59 +254,69 @@ def main(args: Namespace) -> None:
                         attention_mask=encoded_inp['attention_mask'],
                         **generate_kwargs,
                     )
-                    
-        prompt_strings = []
-        for prompt in args.prompts:
-            prompt_strings.append(prompt)
+        while True:
+            prompt = input("Enter your prompt: ")
+            prompt_strings = [prompt]
+            if prompt == 'quit':
+                break
+            start = time.time()
+            
+            # Split into prompt batches
+            batches = []
+            if args.max_batch_size:
+                bs = args.max_batch_size
+                batches = [
+                    prompt_strings[i:i + bs]
+                    for i in range(0, len(prompt_strings), bs)
+                ]
 
-        # Split into prompt batches
-        batches = []
-        if args.max_batch_size:
-            bs = args.max_batch_size
-            batches = [
-                prompt_strings[i:i + bs]
-                for i in range(0, len(prompt_strings), bs)
-            ]
+            else:
+                batches = [prompt_strings]
 
-        else:
-            batches = [prompt_strings]
+            for batch in batches:
+                print(f'\nTokenizing prompts...')
+                maybe_synchronize()
+                encoded_inp = tokenizer(batch, return_tensors='pt', padding=True)
+                for key, value in encoded_inp.items():
+                    encoded_inp[key] = value.to(device)
+                maybe_synchronize()
+                input_tokens = torch.sum(
+                    encoded_inp['input_ids'] != tokenizer.pad_token_id,
+                    axis=1).numpy(force=True)  # type: ignore
 
-        for batch in batches:
-            print(f'\nTokenizing prompts...')
-            maybe_synchronize()
-            encoded_inp = tokenizer(batch, return_tensors='pt', padding=True)
-            for key, value in encoded_inp.items():
-                encoded_inp[key] = value.to(device)
-            maybe_synchronize()
-            input_tokens = torch.sum(
-                encoded_inp['input_ids'] != tokenizer.pad_token_id,
-                axis=1).numpy(force=True)  # type: ignore
+                # Warmup
+                if args.warmup and (not done_warmup):
+                    print('Warming up...')
+                    _ = _generate(encoded_inp)
+                    done_warmup = True
 
-            # Warmup
-            if args.warmup and (not done_warmup):
-                print('Warming up...')
-                _ = _generate(encoded_inp)
-                done_warmup = True
+                # Run HF generate
+                print('Generating responses...')
+                maybe_synchronize()
+                encoded_gen = _generate(encoded_inp)
+                maybe_synchronize()
 
-            # Run HF generate
-            print('Generating responses...')
-            maybe_synchronize()
-            encoded_gen = _generate(encoded_inp)
-            maybe_synchronize()
-
-            decoded_gen = tokenizer.batch_decode(encoded_gen,
-                                                 skip_special_tokens=True)
-            maybe_synchronize()
-            gen_tokens = torch.sum(encoded_gen != tokenizer.pad_token_id,
-                                   axis=1).numpy(force=True)  # type: ignore
-
-            # Print generations
+                decoded_gen = tokenizer.batch_decode(encoded_gen,
+                                                    skip_special_tokens=True)
+                maybe_synchronize()
+                gen_tokens = torch.sum(encoded_gen != tokenizer.pad_token_id,
+                                    axis=1).numpy(force=True)  # type: ignore
+                
+            end = time.time()
+            
             delimiter = '#' * 100
             for prompt, gen in zip(batch, decoded_gen):
                 continuation = gen[len(prompt):]
                 print(delimiter)
                 print('\033[92m' + prompt + '\033[0m' + continuation)
             print(delimiter)
+            print(f"Elapsed time = {end - start} seconds")            
+            print(delimiter)
+        
+        
+
+
+        
 
 if __name__ == '__main__':
     main(parse_args())
