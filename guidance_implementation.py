@@ -1,7 +1,7 @@
 import guidance
 
 # we use LLaMA here, but any GPT-style model will do
-mpt = guidance.llms.Transformers("mpt-7b-instruct", device=0)
+mpt = guidance.llms.Transformers("mosaicml/mpt-7b-instruct", device=0)
 
 # we can pre-define valid option sets
 valid_weapons = ["sword", "axe", "mace", "spear", "bow", "crossbow"]
